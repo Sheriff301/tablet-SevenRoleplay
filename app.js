@@ -49,6 +49,17 @@ async function loginOfficer() {
     if(data.status === 'oczekujacy') return alert("Twój wniosek nadal oczekuje na weryfikację przez dowództwo.");
     if(data.status === 'odrzucony') return alert("Twój wniosek do LSPD/BCSO został odrzucony.");
     
+    // AKTUALIZACJA STATUSU NA SŁUŻBIE W BAZIE
+    const { error: updateError } = await supabaseClient
+        .from('funkcjonariusze')
+        .update({ na_sluzbie: true })
+        .eq('id', data.id);
+        
+    if(updateError) {
+        console.error("Błąd podczas wejścia na służbę:", updateError);
+    }
+
+    data.na_sluzbie = true; 
     currentUser = data;
     isSheriff = false;
     openMDT();
@@ -65,12 +76,32 @@ function loginSheriff() {
     }
 }
 
+// NOWA FUNKCJA: WYLOGOWANIE I ZEJŚCIE ZE SŁUŻBY
+async function logoutOfficer() {
+    if (currentUser && currentUser.id) {
+        await supabaseClient
+            .from('funkcjonariusze')
+            .update({ na_sluzbie: false })
+            .eq('id', currentUser.id);
+    }
+    
+    currentUser = null;
+    isSheriff = false;
+    
+    document.getElementById('mdt-app').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+}
+
 function openMDT() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('mdt-app').style.display = 'flex';
     document.getElementById('logged-user-info').innerText = `[${currentUser.numer_odznaki || '---'}] ${currentUser.imie_nazwisko_ic}`;
     
-    if(isSheriff) document.getElementById('btn-tab-szeryf').style.display = 'block';
+    if(isSheriff) {
+        document.getElementById('btn-tab-szeryf').style.display = 'block';
+    } else {
+        document.getElementById('btn-tab-szeryf').style.display = 'none';
+    }
     
     fetchTaryfikator();
 }
@@ -268,7 +299,6 @@ async function fetchBolos() {
     const { data, error } = await supabaseClient.from('poszukiwania').select('*').order('stworzono_at', { ascending: false });
     if (!error) {
         document.getElementById('bolos-list').innerHTML = data.map(b => {
-            // Renderowanie zdjęć ze starej logiki
             const imagesHtml = b.zdjecia && b.zdjecia.length > 0
                 ? `<div class="image-gallery">${b.zdjecia.map(url => `<img src="${url}" class="gallery-img">`).join('')}</div>`
                 : '';
@@ -296,12 +326,10 @@ async function fetchBolos() {
 
 async function addBolo() {
     const title = document.getElementById('bolo-title').value;
-    // Zbieramy HTML z Worda (zamiast .value) - zachowując stare pole 'opis' w bazie
     const descHTML = document.getElementById('bolo-desc-html').innerHTML;
     
     if (!title || !descHTML || descHTML === "<br>") return alert('Wpisz tytuł oraz opis poszukiwania!');
 
-    // Zbieranie zdjęć (Stara logika)
     const imgInputs = document.querySelectorAll('.bolo-img-file');
     const zdjeciaArray = [];
     for (let input of imgInputs) {
@@ -314,7 +342,6 @@ async function addBolo() {
     }
 
     const signature = getOfficerSignature();
-    // Wysyłamy 'opis' jako nasz kod HTML
     const { error } = await supabaseClient.from('poszukiwania').insert([{
         tytul: title, opis: descHTML, zdjecia: zdjeciaArray, wystawil: signature
     }]);
@@ -340,7 +367,6 @@ function openFullscreen(contentHTML) {
     const modalContent = document.getElementById('fullscreenContent');
     modalContent.innerHTML = contentHTML;
     
-    // Ukrywamy przyciski, żeby nie przeszkadzały w widoku na pełnym ekranie
     const btns = modalContent.querySelectorAll('button');
     btns.forEach(btn => btn.style.display = 'none');
 
